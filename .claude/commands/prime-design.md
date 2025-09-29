@@ -1,0 +1,1 @@
+read all documents in /docs/design
