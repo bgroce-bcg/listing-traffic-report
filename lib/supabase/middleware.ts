@@ -1,0 +1,51 @@
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
+
+/**
+ * Creates a Supabase client for use in Middleware
+ * This handles session refresh and cookie management between requests
+ *
+ * @param request - The incoming Next.js request
+ * @returns A tuple containing the Supabase client and the response object
+ */
+export async function updateSession(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({
+    request,
+  })
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value)
+          )
+          supabaseResponse = NextResponse.next({
+            request,
+          })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  // Refresh session if expired - required for Server Components
+  // https://supabase.com/docs/guides/auth/server-side/nextjs
+  await supabase.auth.getUser()
+
+  // Optionally protect routes - uncomment to require authentication
+  // if (!user && !request.nextUrl.pathname.startsWith('/login')) {
+  //   const url = request.nextUrl.clone()
+  //   url.pathname = '/login'
+  //   return NextResponse.redirect(url)
+  // }
+
+  return supabaseResponse
+}
