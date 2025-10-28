@@ -8,6 +8,7 @@ import { join } from 'path'
 
 type Listing = Tables<'listings'>
 type FacebookUrl = Tables<'facebook_urls'>
+type FacebookPost = Tables<'facebook_posts'>
 type Analytics = Tables<'analytics'>
 
 interface AnalyticsWithFacebook extends Analytics {
@@ -32,7 +33,7 @@ async function getListingData(listingId: string) {
     return null
   }
 
-  // Get all analytics for this listing
+  // Get all analytics for this listing (legacy data)
   const { data: analytics, error: analyticsError } = await supabase
     .from('analytics')
     .select(`
@@ -46,53 +47,130 @@ async function getListingData(listingId: string) {
     console.error('Analytics error:', analyticsError)
   }
 
+  // Get platform metrics (Realtor, Zillow, HAR)
+  const { data: platformMetrics, error: platformError } = await supabase
+    .from('platform_metrics')
+    .select('*')
+    .eq('listing_id', listingId)
+    .order('metric_date', { ascending: false })
+
+  if (platformError) {
+    console.error('Platform metrics error:', platformError)
+  }
+
+  // Get Facebook metrics (legacy)
+  const { data: facebookMetrics, error: facebookError } = await supabase
+    .from('facebook_metrics')
+    .select(`
+      *,
+      facebook_url:facebook_urls!inner(facebook_url, listing_id)
+    `)
+    .eq('facebook_url.listing_id', listingId)
+    .order('metric_date', { ascending: false })
+
+  if (facebookError) {
+    console.error('Facebook metrics error:', facebookError)
+  }
+
+  // Get Facebook posts (new simplified model)
+  const { data: facebookPosts, error: facebookPostsError } = await supabase
+    .from('facebook_posts')
+    .select('*')
+    .eq('listing_id', listingId)
+    .order('created_at', { ascending: false })
+
+  if (facebookPostsError) {
+    console.error('Facebook posts error:', facebookPostsError)
+  }
+
   return {
     listing: listing as Listing & { facebook_urls: FacebookUrl[] },
-    analytics: (analytics || []) as AnalyticsWithFacebook[]
+    analytics: (analytics || []) as AnalyticsWithFacebook[],
+    platformMetrics: platformMetrics || [],
+    facebookMetrics: facebookMetrics || [],
+    facebookPosts: facebookPosts || []
+  }
+}
+
+interface PlatformMetric {
+  platform: string
+  views: number | null
+  leads: number | null
+}
+
+interface FacebookMetric {
+  impressions: number | null
+  reach: number | null
+  post_clicks: number | null
+  facebook_url?: {
+    facebook_url: string
   }
 }
 
 function calculateMetrics(
-  analytics: AnalyticsWithFacebook[],
-  listing: Listing & { facebook_urls: FacebookUrl[] }
+  listing: Listing,
+  platformMetrics: PlatformMetric[],
+  facebookMetrics: FacebookMetric[],
+  facebookPosts: FacebookPost[]
 ) {
-  const totalViews = analytics.reduce((sum, a) => sum + a.views, 0)
-  const totalClicks = analytics.reduce((sum, a) => sum + a.clicks, 0)
+  // Get HAR views from listing columns (simplified: total views only)
+  const harViews = (listing.har_desktop_views || 0) + (listing.har_mobile_views || 0)
 
-  const facebookAnalytics = analytics.filter(a => a.facebook_url_id !== null)
-  const generalAnalytics = analytics.filter(a => a.facebook_url_id === null)
+  // Calculate platform metrics by source (simplified: views only)
+  const realtorViews = platformMetrics
+    .filter(p => p.platform === 'realtor')
+    .reduce((sum, p) => sum + (p.views || 0), 0)
 
-  // Calculate Facebook metrics grouped by URL
-  const facebookUrlMap = new Map<string, { views: number; clicks: number }>()
+  const zillowViews = platformMetrics
+    .filter(p => p.platform === 'zillow')
+    .reduce((sum, p) => sum + (p.views || 0), 0)
 
-  facebookAnalytics.forEach(a => {
-    if (a.facebook_url) {
-      const url = a.facebook_url.facebook_url
-      const existing = facebookUrlMap.get(url) || { views: 0, clicks: 0 }
+  // Calculate Facebook posts views (new simplified model)
+  const facebookPostsViews = facebookPosts.reduce((sum, post) => sum + (post.views || 0), 0)
+  const facebookPostsArray = facebookPosts.map(post => ({
+    url: post.url,
+    views: post.views
+  }))
+
+  // Calculate Facebook metrics grouped by URL (legacy - for backwards compatibility)
+  const facebookUrlMap = new Map<string, { impressions: number; reach: number; clicks: number }>()
+
+  facebookMetrics.forEach(fm => {
+    if (fm.facebook_url?.facebook_url) {
+      const url = fm.facebook_url.facebook_url
+      const existing = facebookUrlMap.get(url) || { impressions: 0, reach: 0, clicks: 0 }
       facebookUrlMap.set(url, {
-        views: existing.views + a.views,
-        clicks: existing.clicks + a.clicks
+        impressions: existing.impressions + (fm.impressions || 0),
+        reach: existing.reach + (fm.reach || 0),
+        clicks: existing.clicks + (fm.post_clicks || 0)
       })
     }
   })
 
-  const facebookMetrics = Array.from(facebookUrlMap.entries()).map(([url, metrics]) => ({
+  const facebookMetricsArray = Array.from(facebookUrlMap.entries()).map(([url, metrics]) => ({
     url,
     ...metrics
   }))
 
-  // Calculate general listing metrics
-  const generalViews = generalAnalytics.reduce((sum, a) => sum + a.views, 0)
-  const sourcesCount = [listing.har_url, listing.realtor_url, listing.zillow_url].filter(Boolean).length
-  const viewsPerSource = sourcesCount > 0 ? Math.floor(generalViews / sourcesCount) : 0
+  // Calculate total views from all sources INCLUDING Facebook posts
+  const totalViews = harViews + realtorViews + zillowViews + facebookPostsViews
+
+  // For backward compatibility with ReportPDF component, convert facebookPosts to facebookMetrics format
+  const facebookMetricsForPDF = facebookPostsArray.map(post => ({
+    url: post.url,
+    views: post.views,
+    clicks: 0 // No clicks data in simplified model
+  }))
 
   return {
     totalViews,
-    totalClicks,
-    harViews: listing.har_url ? viewsPerSource : 0,
-    realtorViews: listing.realtor_url ? viewsPerSource : 0,
-    zillowViews: listing.zillow_url ? viewsPerSource : 0,
-    facebookMetrics,
+    totalClicks: 0, // No longer tracking clicks separately in the new model
+    harViews,
+    realtorViews,
+    zillowViews,
+    facebookPostsViews,
+    facebookPosts: facebookPostsArray,
+    facebookMetrics: facebookMetricsForPDF.length > 0 ? facebookMetricsForPDF : facebookMetricsArray, // Use new data if available, fall back to legacy
     reportDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
   }
 }
@@ -124,8 +202,14 @@ export async function GET(
       )
     }
 
-    const { listing, analytics } = data
-    const metrics = calculateMetrics(analytics, listing)
+    const { listing, platformMetrics, facebookMetrics, facebookPosts } = data
+    const metrics = calculateMetrics(listing, platformMetrics, facebookMetrics, facebookPosts)
+
+    // Debug logging
+    console.log('=== PDF API METRICS DEBUG ===')
+    console.log('Listing ID:', listingId)
+    console.log('Calculated metrics:', metrics)
+    console.log('==============================')
 
     // Get logo as data URL
     const logoDataUrl = getLogoDataUrl()

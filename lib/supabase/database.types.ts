@@ -112,6 +112,41 @@ export type Database = {
           },
         ]
       }
+      facebook_posts: {
+        Row: {
+          created_at: string
+          id: string
+          listing_id: string
+          updated_at: string
+          url: string
+          views: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          listing_id: string
+          updated_at?: string
+          url: string
+          views?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          listing_id?: string
+          updated_at?: string
+          url?: string
+          views?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facebook_posts_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       facebook_urls: {
         Row: {
           created_at: string

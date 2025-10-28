@@ -4,7 +4,6 @@ import Image from 'next/image'
 import { Tables } from '@/lib/supabase/database.types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import { PrintActions } from '@/components/reports/print-actions'
 import {
   Eye,
@@ -16,6 +15,7 @@ import {
 
 type Listing = Tables<'listings'>
 type FacebookUrl = Tables<'facebook_urls'>
+type FacebookPost = Tables<'facebook_posts'>
 type Analytics = Tables<'analytics'>
 
 interface AnalyticsWithFacebook extends Analytics {
@@ -27,6 +27,11 @@ interface MetricsSummary {
   harViews: number
   realtorViews: number
   zillowViews: number
+  facebookPostsViews: number
+  facebookPosts: Array<{
+    url: string
+    views: number
+  }>
   facebookMetrics: Array<{
     url: string
     impressions: number
@@ -79,7 +84,7 @@ async function getListingData(listingId: string) {
     console.error('Platform metrics error:', platformError)
   }
 
-  // Get Facebook metrics
+  // Get Facebook metrics (legacy)
   const { data: facebookMetrics, error: facebookError } = await supabase
     .from('facebook_metrics')
     .select(`
@@ -93,11 +98,39 @@ async function getListingData(listingId: string) {
     console.error('Facebook metrics error:', facebookError)
   }
 
+  // Get Facebook posts (new simplified model)
+  const { data: facebookPosts, error: facebookPostsError } = await supabase
+    .from('facebook_posts')
+    .select('*')
+    .eq('listing_id', listingId)
+    .order('created_at', { ascending: false })
+
+  if (facebookPostsError) {
+    console.error('Facebook posts error:', facebookPostsError)
+  }
+
+  // Debug logging to diagnose data retrieval
+  console.log('=== PRINT PAGE DATA RETRIEVAL DEBUG ===')
+  console.log('Listing ID:', listingId)
+  console.log('Listing HAR views:', {
+    desktop: listing.har_desktop_views,
+    mobile: listing.har_mobile_views,
+    total: (listing.har_desktop_views || 0) + (listing.har_mobile_views || 0)
+  })
+  console.log('Platform Metrics count:', platformMetrics?.length || 0)
+  console.log('Platform Metrics data:', platformMetrics)
+  console.log('Facebook Metrics count:', facebookMetrics?.length || 0)
+  console.log('Facebook Metrics data:', facebookMetrics)
+  console.log('Facebook Posts count:', facebookPosts?.length || 0)
+  console.log('Facebook Posts data:', facebookPosts)
+  console.log('=======================================')
+
   return {
     listing: listing as Listing & { facebook_urls: FacebookUrl[] },
     analytics: (analytics || []) as AnalyticsWithFacebook[],
     platformMetrics: platformMetrics || [],
-    facebookMetrics: facebookMetrics || []
+    facebookMetrics: facebookMetrics || [],
+    facebookPosts: facebookPosts || []
   }
 }
 
@@ -119,7 +152,8 @@ interface FacebookMetric {
 function calculateMetrics(
   listing: Listing,
   platformMetrics: PlatformMetric[],
-  facebookMetrics: FacebookMetric[]
+  facebookMetrics: FacebookMetric[],
+  facebookPosts: FacebookPost[]
 ): MetricsSummary {
   // Get HAR views from listing columns (simplified: total views only)
   const harViews = (listing.har_desktop_views || 0) + (listing.har_mobile_views || 0)
@@ -133,7 +167,14 @@ function calculateMetrics(
     .filter(p => p.platform === 'zillow')
     .reduce((sum, p) => sum + (p.views || 0), 0)
 
-  // Calculate Facebook metrics grouped by URL (simplified: impressions, reach, clicks)
+  // Calculate Facebook posts views (new simplified model)
+  const facebookPostsViews = facebookPosts.reduce((sum, post) => sum + (post.views || 0), 0)
+  const facebookPostsArray = facebookPosts.map(post => ({
+    url: post.url,
+    views: post.views
+  }))
+
+  // Calculate Facebook metrics grouped by URL (legacy - for backwards compatibility)
   const facebookUrlMap = new Map<string, { impressions: number; reach: number; clicks: number }>()
 
   facebookMetrics.forEach(fm => {
@@ -153,14 +194,27 @@ function calculateMetrics(
     ...metrics
   }))
 
-  // Calculate total views from all sources
-  const totalViews = harViews + realtorViews + zillowViews
+  // Calculate total views from all sources INCLUDING Facebook posts
+  const totalViews = harViews + realtorViews + zillowViews + facebookPostsViews
+
+  // Debug logging for calculated metrics
+  console.log('=== CALCULATED METRICS DEBUG ===')
+  console.log('HAR Views:', harViews)
+  console.log('Realtor Views:', realtorViews)
+  console.log('Zillow Views:', zillowViews)
+  console.log('Facebook Posts Views:', facebookPostsViews)
+  console.log('Total Views:', totalViews)
+  console.log('Facebook Posts Array:', facebookPostsArray)
+  console.log('Facebook Metrics Array:', facebookMetricsArray)
+  console.log('================================')
 
   return {
     totalViews,
     harViews,
     realtorViews,
     zillowViews,
+    facebookPostsViews,
+    facebookPosts: facebookPostsArray,
     facebookMetrics: facebookMetricsArray,
     reportDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
   }
@@ -178,8 +232,8 @@ export default async function PrintReportPage({
     notFound()
   }
 
-  const { listing, platformMetrics, facebookMetrics } = data
-  const metrics = calculateMetrics(listing, platformMetrics, facebookMetrics)
+  const { listing, platformMetrics, facebookMetrics, facebookPosts } = data
+  const metrics = calculateMetrics(listing, platformMetrics, facebookMetrics, facebookPosts)
 
   return (
     <div className="min-h-screen print:min-h-0 bg-gradient-to-br from-gray-50 to-white print:bg-white">
@@ -355,12 +409,75 @@ export default async function PrintReportPage({
           )}
         </div>
 
-        {/* Facebook Performance */}
+        {/* Facebook Posts Table (New Simplified Model) */}
+        {metrics.facebookPosts.length > 0 && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="w-1 h-5 bg-gradient-to-b from-red-500 to-red-600 rounded-full"></div>
+              <h2 className="report-heading text-xl text-gray-900">Facebook Posts Performance</h2>
+            </div>
+
+            <Card className="premium-card border-0 bg-gradient-subtle overflow-hidden">
+              <CardContent className="pt-3 pb-3">
+                {/* Table Header */}
+                <div className="grid grid-cols-12 gap-3 pb-2 mb-2 border-b border-gray-200">
+                  <div className="col-span-1 text-center">
+                    <p className="text-xs font-medium text-gray-600 report-subheading">#</p>
+                  </div>
+                  <div className="col-span-9">
+                    <p className="text-xs font-medium text-gray-600 report-subheading">Facebook Post URL</p>
+                  </div>
+                  <div className="col-span-2 text-right">
+                    <p className="text-xs font-medium text-gray-600 report-subheading">Views</p>
+                  </div>
+                </div>
+
+                {/* Table Rows */}
+                <div className="space-y-1.5">
+                  {metrics.facebookPosts.map((post, index) => (
+                    <div key={index} className="grid grid-cols-12 gap-3 py-2 hover:bg-white/50 rounded transition-colors">
+                      <div className="col-span-1 text-center">
+                        <div className="bg-blue-100 rounded-full w-6 h-6 flex items-center justify-center mx-auto">
+                          <span className="text-xs font-medium text-blue-700">{index + 1}</span>
+                        </div>
+                      </div>
+                      <div className="col-span-9 flex items-center gap-2">
+                        <Facebook className="h-3.5 w-3.5 text-blue-600 flex-shrink-0" />
+                        <p className="text-xs text-gray-700 truncate report-body">
+                          {post.url}
+                        </p>
+                      </div>
+                      <div className="col-span-2 text-right flex items-center justify-end">
+                        <p className="report-metric text-base text-gray-900 font-semibold">
+                          {post.views.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Total Row */}
+                <div className="grid grid-cols-12 gap-3 pt-2 mt-2 border-t border-gray-300">
+                  <div className="col-span-10 text-right">
+                    <p className="text-sm font-semibold text-gray-700 report-heading">Total Facebook Views:</p>
+                  </div>
+                  <div className="col-span-2 text-right">
+                    <p className="report-metric text-lg text-gray-900 font-bold">
+                      {metrics.facebookPostsViews.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Facebook Performance (Legacy - for backwards compatibility) */}
         {metrics.facebookMetrics.length > 0 && (
           <div className="mb-4">
             <div className="flex items-center gap-2 mb-2.5">
               <div className="w-1 h-5 bg-gradient-to-b from-red-500 to-red-600 rounded-full"></div>
-              <h2 className="report-heading text-xl text-gray-900">Social Media Performance</h2>
+              <h2 className="report-heading text-xl text-gray-900">Social Media Performance (Legacy)</h2>
             </div>
 
             <div className="space-y-2">

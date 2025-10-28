@@ -89,8 +89,15 @@ export default function DashboardPage() {
           <p className="text-foreground/70">
             Welcome back, {user?.user_metadata?.full_name || user?.email || 'User'}!
           </p>
+          
+          
         </div>
-
+        <div className="flex justify-end mb-4">
+        <Button onClick={() => router.push('/listings/new')} className="mt-4 float-right">
+            <Plus className="mr-2 h-4 w-4" />
+            Create Listing
+          </Button>
+        </div>
         {/* Statistics Cards */}
         <div className="grid gap-4 md:grid-cols-3 mb-8">
           <Card>
@@ -133,30 +140,6 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Quick Actions */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-            <CardDescription>Get started with common tasks</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-4">
-              <Button onClick={() => router.push('/listings/new')}>
-                <Plus className="mr-2 h-4 w-4" />
-                Create Listing
-              </Button>
-              <Button variant="outline" onClick={() => router.push('/analytics')}>
-                <BarChart3 className="mr-2 h-4 w-4" />
-                View Analytics
-              </Button>
-              <Button variant="outline" onClick={() => router.push('/listings')}>
-                <List className="mr-2 h-4 w-4" />
-                View All Listings
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Recent Listings */}
         <Card>
           <CardHeader>
@@ -165,13 +148,6 @@ export default function DashboardPage() {
                 <CardTitle>Recent Listings</CardTitle>
                 <CardDescription>Your most recently created listings</CardDescription>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => router.push('/listings')}
-              >
-                View All →
-              </Button>
             </div>
           </CardHeader>
           <CardContent>
@@ -202,20 +178,6 @@ export default function DashboardPage() {
                       <p className="text-sm text-foreground/60">
                         Created {new Date(listing.created_at).toLocaleDateString()}
                       </p>
-                    </div>
-                    <div className="flex items-center gap-6 text-sm">
-                      <div className="flex items-center gap-2">
-                        <Eye className="h-4 w-4 text-foreground/60" />
-                        <span>{listing.total_views || 0}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <MousePointer className="h-4 w-4 text-foreground/60" />
-                        <span>{listing.total_clicks || 0}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <TrendingUp className="h-4 w-4 text-foreground/60" />
-                        <span>{listing.facebook_url_count || 0} FB posts</span>
-                      </div>
                     </div>
                   </div>
                 ))}

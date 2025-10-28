@@ -11,6 +11,8 @@ import { getListing, getFacebookUrls, addFacebookUrl, deleteFacebookUrl, Listing
 import { getListingAnalytics, getListingAnalyticsSummary, AnalyticsWithDetails } from '@/lib/supabase/analytics'
 import { Building2, ArrowLeft, Edit, BarChart3, ExternalLink, Eye, FileDown, Printer } from 'lucide-react'
 import { FacebookUrlsManager } from '@/components/listings/facebook-urls-manager'
+import { FacebookPostsManager } from '@/components/listings/facebook-posts-manager'
+import { FacebookPost, getFacebookPosts, addFacebookPost, updateFacebookPost, deleteFacebookPost } from '@/lib/supabase/facebook-posts'
 import { ImageUpload } from '@/components/listings/image-upload'
 import { ManualDataEntry } from '@/components/listings/manual-data-entry'
 import Link from 'next/link'
@@ -23,6 +25,7 @@ export default function ListingDetailPage() {
 
   const [listing, setListing] = useState<Listing | null>(null)
   const [facebookUrls, setFacebookUrls] = useState<FacebookUrl[]>([])
+  const [facebookPosts, setFacebookPosts] = useState<FacebookPost[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsWithDetails[]>([])
   const [analyticsSummary, setAnalyticsSummary] = useState({
     totalViews: 0,
@@ -43,9 +46,10 @@ export default function ListingDetailPage() {
       setLoading(true)
       setError(null)
 
-      const [listingData, fbUrls, analyticsData, summary] = await Promise.all([
+      const [listingData, fbUrls, fbPosts, analyticsData, summary] = await Promise.all([
         getListing(listingId),
         getFacebookUrls(listingId),
+        getFacebookPosts(listingId),
         getListingAnalytics(listingId),
         getListingAnalyticsSummary(listingId),
       ])
@@ -57,6 +61,7 @@ export default function ListingDetailPage() {
 
       setListing(listingData)
       setFacebookUrls(fbUrls)
+      setFacebookPosts(fbPosts)
       setAnalytics(analyticsData)
       setAnalyticsSummary(summary)
     } catch (err) {
@@ -74,6 +79,18 @@ export default function ListingDetailPage() {
     await deleteFacebookUrl(id)
   }
 
+  async function handleAddFacebookPost(url: string, views: number) {
+    await addFacebookPost(listingId, url, views)
+  }
+
+  async function handleUpdateFacebookPost(id: string, url: string, views: number) {
+    await updateFacebookPost(id, { url, views })
+  }
+
+  async function handleDeleteFacebookPost(id: string) {
+    await deleteFacebookPost(id)
+  }
+
   async function handleRefresh() {
     await loadData()
   }
@@ -84,106 +101,34 @@ export default function ListingDetailPage() {
     try {
       setIsGeneratingReport(true)
 
-      const { jsPDF } = await import('jspdf')
-      const doc = new jsPDF()
-      const margin = 16
-      let y = margin
+      // Fetch PDF from API (same as "Save as PDF" in print-actions)
+      const response = await fetch(`/api/reports/${listingId}/pdf`)
 
-      doc.setFontSize(18)
-      doc.text('Listing Traffic Report', margin, y)
-
-      doc.setFontSize(12)
-      y += 10
-      doc.text(`Name: ${listing.name ?? 'N/A'}`, margin, y)
-      y += 6
-      doc.text(`Status: ${listing.is_active ? 'Active' : 'Inactive'}`, margin, y)
-      y += 6
-      doc.text(`Created: ${new Date(listing.created_at).toLocaleDateString()}`, margin, y)
-      y += 10
-
-      const stringFromListing = (key: string) => {
-        const value = (listing as Record<string, unknown>)[key]
-        return typeof value === 'string' ? value : undefined
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF')
       }
 
-      const addressLines = [
-        stringFromListing('address'),
-        stringFromListing('city'),
-        stringFromListing('state'),
-        stringFromListing('zip_code'),
-      ].filter(Boolean) as string[]
+      // Get the blob from response
+      const blob = await response.blob()
 
-      if (addressLines.length > 0) {
-        doc.setFont('helvetica', 'bold')
-        doc.text('Address', margin, y)
-        doc.setFont('helvetica', 'normal')
-        y += 6
-        addressLines.forEach((line) => {
-          doc.text(line, margin, y)
-          y += 6
-        })
-        y += 4
-      }
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
 
-      doc.setFont('helvetica', 'bold')
-      doc.text('Platform URLs', margin, y)
-      doc.setFont('helvetica', 'normal')
-      y += 6
+      // Extract filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition')
+      const filenameMatch = contentDisposition?.match(/filename="(.+)"/)
+      const filename = filenameMatch ? filenameMatch[1] : 'Traffic_Report.pdf'
 
-      const platformUrls: Array<{ label: string; value?: string | null }> = [
-        { label: 'Realtor.com', value: listing.realtor_url },
-        { label: 'HAR.com', value: listing.har_url },
-        { label: 'Zillow', value: listing.zillow_url },
-      ]
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
 
-      platformUrls.forEach(({ label, value }) => {
-        doc.text(`${label}: ${value ?? 'Not provided'}`, margin, y)
-        y += 6
-      })
+      // Cleanup
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
 
-      y += 4
-      doc.setFont('helvetica', 'bold')
-      doc.text('Traffic Summary', margin, y)
-      doc.setFont('helvetica', 'normal')
-      y += 6
-      doc.text(`Total Views: ${totalViews.toLocaleString()}`, margin, y)
-      y += 10
-
-      doc.setFont('helvetica', 'bold')
-      doc.text('Platform Breakdown', margin, y)
-      doc.setFont('helvetica', 'normal')
-      y += 6
-
-      const breakdown: string[] = []
-
-      // HAR.com views
-      if (listing.har_desktop_views || listing.har_mobile_views) {
-        const harTotal = (listing.har_desktop_views || 0) + (listing.har_mobile_views || 0)
-        breakdown.push(`HAR.com: ${harTotal.toLocaleString()} views (Desktop: ${(listing.har_desktop_views || 0).toLocaleString()}, Mobile: ${(listing.har_mobile_views || 0).toLocaleString()})`)
-      }
-
-      // Platform metrics views
-      if (analyticsSummary.platform.views > 0) {
-        breakdown.push(`Realtor/Zillow: ${analyticsSummary.platform.views.toLocaleString()} views`)
-      }
-
-      // Facebook metrics
-      if (analyticsSummary.facebook.impressions > 0) {
-        breakdown.push(`Facebook: ${analyticsSummary.facebook.impressions.toLocaleString()} impressions, ${analyticsSummary.facebook.clicks.toLocaleString()} clicks`)
-      }
-
-      if (breakdown.length === 0) {
-        doc.text('No traffic data available.', margin, y)
-        y += 6
-      } else {
-        breakdown.forEach((line) => {
-          doc.text(line, margin, y)
-          y += 6
-        })
-      }
-
-      const sanitizedName = listing.name?.trim().replace(/\s+/g, '-').toLowerCase() || 'listing'
-      doc.save(`${sanitizedName}-report.pdf`)
       toast.success('Report generated')
     } catch (err) {
       console.error(err)
@@ -195,6 +140,7 @@ export default function ListingDetailPage() {
 
   const totalViews = analyticsSummary.totalViews
   const recentAnalytics = analytics.slice(0, 7)
+  
 
   if (loading) {
     return (
@@ -269,10 +215,6 @@ export default function ListingDetailPage() {
           </div>
           <div className="flex gap-2">
             <Link href={`/listings/${listing.id}/analytics`}>
-              <Button variant="outline">
-                <BarChart3 className="mr-2 h-4 w-4" />
-                View Analytics
-              </Button>
             </Link>
             <Link href={`/reports/${listing.id}/print`}>
               <Button variant="outline">
@@ -382,7 +324,21 @@ export default function ListingDetailPage() {
           />
         </div>
 
-        {/* Facebook URLs Manager */}
+        {/* Facebook Posts Manager - Simplified */}
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <FacebookPostsManager
+              listingId={listing.id}
+              facebookPosts={facebookPosts}
+              onAdd={handleAddFacebookPost}
+              onUpdate={handleUpdateFacebookPost}
+              onDelete={handleDeleteFacebookPost}
+              onRefresh={handleRefresh}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Facebook URLs Manager - Legacy (Optional - can be removed later) */}
         <Card className="mb-6">
           <CardContent className="pt-6">
             <FacebookUrlsManager

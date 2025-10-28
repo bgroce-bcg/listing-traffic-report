@@ -7,14 +7,12 @@ interface ReportPDFProps {
   }
   metrics: {
     totalViews: number
-    totalClicks: number
     harViews: number
     realtorViews: number
     zillowViews: number
     facebookMetrics: Array<{
       url: string
       views: number
-      clicks: number
     }>
     reportDate: string
   }
@@ -206,40 +204,103 @@ const styles = StyleSheet.create({
     color: '#111827',
     letterSpacing: -0.3,
   },
-  fbCard: {
+  fbTableContainer: {
     backgroundColor: '#FAFAFA',
     padding: 10,
     borderRadius: 6,
     border: '1px solid #E5E7EB',
-    marginBottom: 8,
   },
-  fbHeader: {
+  fbTableHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+    borderBottom: '1px solid #E5E7EB',
+    paddingBottom: 6,
+    marginBottom: 6,
   },
-  fbBadge: {
-    backgroundColor: 'white',
-    padding: '3 8',
-    borderRadius: 4,
-    border: '1px solid #E5E7EB',
+  fbTableHeaderCell: {
+    fontSize: 8,
+    fontFamily: 'Helvetica-Bold',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
-  fbBadgeText: {
+  fbTableHeaderNumber: {
+    width: '8%',
+    textAlign: 'center',
+  },
+  fbTableHeaderUrl: {
+    width: '72%',
+    paddingLeft: 5,
+  },
+  fbTableHeaderViews: {
+    width: '20%',
+    textAlign: 'right',
+  },
+  fbTableRow: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  fbTableCell: {
     fontSize: 8,
     color: '#111827',
   },
-  fbUrl: {
+  fbTableNumber: {
+    width: '8%',
+    textAlign: 'center',
+  },
+  fbTableNumberBadge: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 10,
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 'auto',
+    marginRight: 'auto',
+  },
+  fbTableNumberText: {
+    fontSize: 7,
+    fontFamily: 'Helvetica-Bold',
+    color: '#1E40AF',
+  },
+  fbTableUrl: {
+    width: '72%',
+    paddingLeft: 5,
+  },
+  fbTableUrlText: {
     fontSize: 8,
-    color: '#6B7280',
-    marginBottom: 8,
+    color: '#374151',
   },
-  fbMetrics: {
-    flexDirection: 'row',
-    gap: 20,
+  fbTableViews: {
+    width: '20%',
+    textAlign: 'right',
   },
-  fbMetric: {
+  fbTableViewsText: {
+    fontSize: 10,
+    fontFamily: 'Helvetica-Bold',
+    color: '#111827',
+    letterSpacing: -0.2,
+  },
+  fbTableTotal: {
     flexDirection: 'row',
-    gap: 5,
+    borderTop: '2px solid #D1D5DB',
+    paddingTop: 6,
+    marginTop: 6,
+  },
+  fbTableTotalLabel: {
+    width: '80%',
+    textAlign: 'right',
+    fontSize: 9,
+    fontFamily: 'Helvetica-Bold',
+    color: '#374151',
+  },
+  fbTableTotalValue: {
+    width: '20%',
+    textAlign: 'right',
+    fontSize: 11,
+    fontFamily: 'Helvetica-Bold',
+    color: '#111827',
+    letterSpacing: -0.3,
   },
   footer: {
     marginTop: 15,
@@ -338,10 +399,6 @@ export function ReportPDF({ listing, metrics, hasHar, hasRealtor, hasZillow, log
               <Text style={styles.metricLabel}>Total Views</Text>
               <Text style={styles.metricValue}>{metrics.totalViews.toLocaleString()}</Text>
             </View>
-            <View style={styles.metricCard}>
-              <Text style={styles.metricLabel}>Total Clicks</Text>
-              <Text style={styles.metricValue}>{metrics.totalClicks.toLocaleString()}</Text>
-            </View>
           </View>
         </View>
 
@@ -359,12 +416,6 @@ export function ReportPDF({ listing, metrics, hasHar, hasRealtor, hasZillow, log
                   <Text style={styles.platformLabel}>Views</Text>
                   <Text style={styles.platformValue}>{metrics.harViews.toLocaleString()}</Text>
                 </View>
-                <View style={styles.platformMetric}>
-                  <Text style={styles.platformLabel}>Clicks</Text>
-                  <Text style={styles.platformValue}>
-                    {Math.floor(metrics.harViews * 0.15).toLocaleString()}
-                  </Text>
-                </View>
               </View>
             )}
             {hasRealtor && (
@@ -373,12 +424,6 @@ export function ReportPDF({ listing, metrics, hasHar, hasRealtor, hasZillow, log
                 <View style={styles.platformMetric}>
                   <Text style={styles.platformLabel}>Views</Text>
                   <Text style={styles.platformValue}>{metrics.realtorViews.toLocaleString()}</Text>
-                </View>
-                <View style={styles.platformMetric}>
-                  <Text style={styles.platformLabel}>Clicks</Text>
-                  <Text style={styles.platformValue}>
-                    {Math.floor(metrics.realtorViews * 0.15).toLocaleString()}
-                  </Text>
                 </View>
               </View>
             )}
@@ -389,44 +434,51 @@ export function ReportPDF({ listing, metrics, hasHar, hasRealtor, hasZillow, log
                   <Text style={styles.platformLabel}>Views</Text>
                   <Text style={styles.platformValue}>{metrics.zillowViews.toLocaleString()}</Text>
                 </View>
-                <View style={styles.platformMetric}>
-                  <Text style={styles.platformLabel}>Clicks</Text>
-                  <Text style={styles.platformValue}>
-                    {Math.floor(metrics.zillowViews * 0.15).toLocaleString()}
-                  </Text>
-                </View>
               </View>
             )}
           </View>
         </View>
 
-        {/* Social Media Performance */}
+        {/* Facebook Posts Performance */}
         {metrics.facebookMetrics.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Social Media Performance</Text>
+              <Text style={styles.sectionTitle}>Facebook Posts Performance</Text>
             </View>
-            {metrics.facebookMetrics.map((fbMetric, index) => (
-              <View key={index} style={styles.fbCard}>
-                <View style={styles.fbHeader}>
-                  <View style={styles.fbBadge}>
-                    <Text style={styles.fbBadgeText}>Post {index + 1}</Text>
-                  </View>
-                </View>
-                <Text style={styles.fbUrl}>{fbMetric.url}</Text>
-                <View style={styles.fbMetrics}>
-                  <View style={styles.fbMetric}>
-                    <Text style={styles.platformLabel}>Views: </Text>
-                    <Text style={styles.platformValue}>{fbMetric.views.toLocaleString()}</Text>
-                  </View>
-                  <View style={styles.fbMetric}>
-                    <Text style={styles.platformLabel}>Clicks: </Text>
-                    <Text style={styles.platformValue}>{fbMetric.clicks.toLocaleString()}</Text>
-                  </View>
-                </View>
+            <View style={styles.fbTableContainer}>
+              {/* Table Header */}
+              <View style={styles.fbTableHeader}>
+                <Text style={[styles.fbTableHeaderCell, styles.fbTableHeaderNumber]}>#</Text>
+                <Text style={[styles.fbTableHeaderCell, styles.fbTableHeaderUrl]}>Facebook Post URL</Text>
+                <Text style={[styles.fbTableHeaderCell, styles.fbTableHeaderViews]}>Views</Text>
               </View>
-            ))}
+
+              {/* Table Rows */}
+              {metrics.facebookMetrics.map((fbMetric, index) => (
+                <View key={index} style={styles.fbTableRow}>
+                  <View style={styles.fbTableNumber}>
+                    <View style={styles.fbTableNumberBadge}>
+                      <Text style={styles.fbTableNumberText}>{index + 1}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.fbTableUrl}>
+                    <Text style={styles.fbTableUrlText}>{fbMetric.url}</Text>
+                  </View>
+                  <View style={styles.fbTableViews}>
+                    <Text style={styles.fbTableViewsText}>{fbMetric.views.toLocaleString()}</Text>
+                  </View>
+                </View>
+              ))}
+
+              {/* Total Row */}
+              <View style={styles.fbTableTotal}>
+                <Text style={styles.fbTableTotalLabel}>Total Facebook Views:</Text>
+                <Text style={styles.fbTableTotalValue}>
+                  {metrics.facebookMetrics.reduce((sum, m) => sum + m.views, 0).toLocaleString()}
+                </Text>
+              </View>
+            </View>
           </View>
         )}
 
