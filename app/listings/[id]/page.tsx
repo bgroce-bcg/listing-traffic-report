@@ -8,9 +8,11 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { getListing, getFacebookUrls, addFacebookUrl, deleteFacebookUrl, Listing, FacebookUrl } from '@/lib/supabase/listings'
-import { getListingAnalytics, AnalyticsWithDetails } from '@/lib/supabase/analytics'
-import { Building2, ArrowLeft, Edit, BarChart3, ExternalLink, Eye, MousePointer, FileDown, Monitor, Smartphone, Images, Gauge, Tag } from 'lucide-react'
+import { getListingAnalytics, getListingAnalyticsSummary, AnalyticsWithDetails } from '@/lib/supabase/analytics'
+import { Building2, ArrowLeft, Edit, BarChart3, ExternalLink, Eye, FileDown, Printer } from 'lucide-react'
 import { FacebookUrlsManager } from '@/components/listings/facebook-urls-manager'
+import { ImageUpload } from '@/components/listings/image-upload'
+import { ManualDataEntry } from '@/components/listings/manual-data-entry'
 import Link from 'next/link'
 import { toast } from 'sonner'
 
@@ -22,6 +24,11 @@ export default function ListingDetailPage() {
   const [listing, setListing] = useState<Listing | null>(null)
   const [facebookUrls, setFacebookUrls] = useState<FacebookUrl[]>([])
   const [analytics, setAnalytics] = useState<AnalyticsWithDetails[]>([])
+  const [analyticsSummary, setAnalyticsSummary] = useState({
+    totalViews: 0,
+    platform: { views: 0 },
+    facebook: { impressions: 0, clicks: 0 }
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
@@ -36,10 +43,11 @@ export default function ListingDetailPage() {
       setLoading(true)
       setError(null)
 
-      const [listingData, fbUrls, analyticsData] = await Promise.all([
+      const [listingData, fbUrls, analyticsData, summary] = await Promise.all([
         getListing(listingId),
         getFacebookUrls(listingId),
         getListingAnalytics(listingId),
+        getListingAnalyticsSummary(listingId),
       ])
 
       if (!listingData) {
@@ -50,6 +58,7 @@ export default function ListingDetailPage() {
       setListing(listingData)
       setFacebookUrls(fbUrls)
       setAnalytics(analyticsData)
+      setAnalyticsSummary(summary)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load listing')
     } finally {
@@ -134,25 +143,41 @@ export default function ListingDetailPage() {
 
       y += 4
       doc.setFont('helvetica', 'bold')
-      doc.text('Analytics Summary', margin, y)
+      doc.text('Traffic Summary', margin, y)
       doc.setFont('helvetica', 'normal')
       y += 6
       doc.text(`Total Views: ${totalViews.toLocaleString()}`, margin, y)
-      y += 6
-      doc.text(`Total Clicks: ${totalClicks.toLocaleString()}`, margin, y)
       y += 10
 
       doc.setFont('helvetica', 'bold')
-      doc.text('Recent Analytics', margin, y)
+      doc.text('Platform Breakdown', margin, y)
       doc.setFont('helvetica', 'normal')
       y += 6
 
-      if (recentAnalytics.length === 0) {
-        doc.text('No recent analytics data available.', margin, y)
+      const breakdown: string[] = []
+
+      // HAR.com views
+      if (listing.har_desktop_views || listing.har_mobile_views) {
+        const harTotal = (listing.har_desktop_views || 0) + (listing.har_mobile_views || 0)
+        breakdown.push(`HAR.com: ${harTotal.toLocaleString()} views (Desktop: ${(listing.har_desktop_views || 0).toLocaleString()}, Mobile: ${(listing.har_mobile_views || 0).toLocaleString()})`)
+      }
+
+      // Platform metrics views
+      if (analyticsSummary.platform.views > 0) {
+        breakdown.push(`Realtor/Zillow: ${analyticsSummary.platform.views.toLocaleString()} views`)
+      }
+
+      // Facebook metrics
+      if (analyticsSummary.facebook.impressions > 0) {
+        breakdown.push(`Facebook: ${analyticsSummary.facebook.impressions.toLocaleString()} impressions, ${analyticsSummary.facebook.clicks.toLocaleString()} clicks`)
+      }
+
+      if (breakdown.length === 0) {
+        doc.text('No traffic data available.', margin, y)
+        y += 6
       } else {
-        recentAnalytics.forEach((item) => {
-          const date = new Date(item.metric_date).toLocaleDateString()
-          doc.text(`${date} - Views: ${item.views ?? 0}, Clicks: ${item.clicks ?? 0}`, margin, y)
+        breakdown.forEach((line) => {
+          doc.text(line, margin, y)
           y += 6
         })
       }
@@ -168,8 +193,7 @@ export default function ListingDetailPage() {
     }
   }
 
-  const totalViews = analytics.reduce((sum, a) => sum + (a.views || 0), 0)
-  const totalClicks = analytics.reduce((sum, a) => sum + (a.clicks || 0), 0)
+  const totalViews = analyticsSummary.totalViews
   const recentAnalytics = analytics.slice(0, 7)
 
   if (loading) {
@@ -250,6 +274,12 @@ export default function ListingDetailPage() {
                 View Analytics
               </Button>
             </Link>
+            <Link href={`/reports/${listing.id}/print`}>
+              <Button variant="outline">
+                <Printer className="mr-2 h-4 w-4" />
+                View Print Report
+              </Button>
+            </Link>
             <Button variant="outline" onClick={handleGenerateReport} disabled={isGeneratingReport}>
               <FileDown className="mr-2 h-4 w-4" />
               {isGeneratingReport ? 'Generating…' : 'Generate Report'}
@@ -316,11 +346,11 @@ export default function ListingDetailPage() {
           {/* Analytics Summary */}
           <Card>
             <CardHeader>
-              <CardTitle>Analytics Summary</CardTitle>
-              <CardDescription>Overall performance metrics</CardDescription>
+              <CardTitle>Traffic Summary</CardTitle>
+              <CardDescription>Overall view metrics</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div className="flex flex-col">
                   <span className="text-sm text-foreground/60 mb-1">Total Views</span>
                   <div className="flex items-center gap-2">
@@ -328,37 +358,29 @@ export default function ListingDetailPage() {
                     <span className="text-2xl font-bold">{totalViews.toLocaleString()}</span>
                   </div>
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-sm text-foreground/60 mb-1">Total Clicks</span>
-                  <div className="flex items-center gap-2">
-                    <MousePointer className="h-4 w-4 text-foreground/60" />
-                    <span className="text-2xl font-bold">{totalClicks.toLocaleString()}</span>
-                  </div>
-                </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* HAR Traffic Snapshot - Disabled: Schema changed to use analytics table */}
-        {/*
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              HAR Traffic Snapshot
-            </CardTitle>
-            <CardDescription>
-              This feature requires database schema updates
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-sm text-muted-foreground">
-              HAR snapshot fields have been moved to the analytics table.
-            </div>
-          </CardContent>
-        </Card>
-        */}
+        {/* Property Image Upload */}
+        <div className="mb-6">
+          <ImageUpload
+            listingId={listing.id}
+            currentImageUrl={listing.image_url}
+            onUploadSuccess={handleRefresh}
+            onDeleteSuccess={handleRefresh}
+          />
+        </div>
+
+        {/* Manual Data Entry Forms */}
+        <div className="mb-6">
+          <ManualDataEntry
+            listing={listing}
+            facebookUrls={facebookUrls}
+            onRefresh={handleRefresh}
+          />
+        </div>
 
         {/* Facebook URLs Manager */}
         <Card className="mb-6">

@@ -236,15 +236,87 @@
     page-break-after: always;
   }
 
+  /* Tighten spacing for print to fit on one page */
+  .max-w-\[8\.5in\] {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+
+  /* Reduce margins between sections */
+  .mb-4 {
+    margin-bottom: 0.75rem !important;
+  }
+
+  .mb-3 {
+    margin-bottom: 0.5rem !important;
+  }
+
+  .mt-8 {
+    margin-top: 1rem !important;
+  }
+
+  .mt-5 {
+    margin-top: 0.75rem !important;
+  }
+
   /* Ensure premium styling prints correctly */
   .premium-card,
   .premium-card-elevated {
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.1) !important;
+    border: 1px solid #e5e7eb !important;
   }
 
-  .gradient-header,
-  .gradient-coral,
+  /* Reduce card padding for compact print layout */
+  .pt-3 {
+    padding-top: 0.5rem !important;
+  }
+
+  .pb-3 {
+    padding-bottom: 0.5rem !important;
+  }
+
+  .pt-2\.5 {
+    padding-top: 0.4rem !important;
+  }
+
+  .pb-2\.5 {
+    padding-bottom: 0.4rem !important;
+  }
+
+  /* Preserve gradients in PDF output - subtle for professional look */
+  .gradient-header {
+    background: linear-gradient(135deg, #ffffff 0%, #fefcfb 50%, #fef8f7 100%) !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .gradient-coral {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%) !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
   .gradient-subtle {
-    background: #fafafa !important;
+    background: linear-gradient(to bottom, #ffffff 0%, #fafafa 100%) !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* Ensure all text and icons render properly */
+  .report-title,
+  .report-heading,
+  .report-metric,
+  .report-subheading,
+  .report-body {
+    color: #111827 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* Preserve colored elements */
+  svg,
+  .lucide {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }

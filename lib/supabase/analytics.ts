@@ -22,6 +22,7 @@ export interface AnalyticsTrend {
 
 /**
  * Get all analytics for a listing with details
+ * This pulls from the analytics table only (legacy data)
  */
 export async function getListingAnalytics(listingId: string): Promise<AnalyticsWithDetails[]> {
   const supabase = createClient()
@@ -49,6 +50,70 @@ export async function getListingAnalytics(listingId: string): Promise<AnalyticsW
       facebook_url: itemWithRelations.facebook_urls?.facebook_url,
     }
   })
+}
+
+/**
+ * Get comprehensive analytics summary for a listing
+ * Includes data from analytics, platform_metrics, and facebook_metrics tables
+ */
+export async function getListingAnalyticsSummary(listingId: string) {
+  const supabase = createClient()
+
+  // Get analytics table data
+  const { data: analyticsData, error: analyticsError } = await supabase
+    .from('analytics')
+    .select('views, clicks')
+    .eq('listing_id', listingId)
+
+  if (analyticsError) throw analyticsError
+
+  // Get platform_metrics data
+  const { data: platformData, error: platformError } = await supabase
+    .from('platform_metrics')
+    .select('views, saves, shares, leads')
+    .eq('listing_id', listingId)
+
+  if (platformError) throw platformError
+
+  // Get facebook_metrics data
+  const { data: facebookData, error: facebookError } = await supabase
+    .from('facebook_metrics')
+    .select(`
+      impressions,
+      reach,
+      post_clicks,
+      facebook_urls!inner(listing_id)
+    `)
+    .eq('facebook_urls.listing_id', listingId)
+
+  if (facebookError) throw facebookError
+
+  // Calculate totals
+  const analyticsViews = analyticsData?.reduce((sum, a) => sum + (a.views || 0), 0) ?? 0
+  const analyticsClicks = analyticsData?.reduce((sum, a) => sum + (a.clicks || 0), 0) ?? 0
+
+  const platformViews = platformData?.reduce((sum, p) => sum + (p.views || 0), 0) ?? 0
+  const platformLeads = platformData?.reduce((sum, p) => sum + (p.leads || 0), 0) ?? 0
+
+  const facebookImpressions = facebookData?.reduce((sum, f) => sum + (f.impressions || 0), 0) ?? 0
+  const facebookClicks = facebookData?.reduce((sum, f) => sum + (f.post_clicks || 0), 0) ?? 0
+
+  return {
+    totalViews: analyticsViews + platformViews,
+    totalClicks: analyticsClicks + platformLeads + facebookClicks,
+    analytics: {
+      views: analyticsViews,
+      clicks: analyticsClicks,
+    },
+    platform: {
+      views: platformViews,
+      leads: platformLeads,
+    },
+    facebook: {
+      impressions: facebookImpressions,
+      clicks: facebookClicks,
+    },
+  }
 }
 
 /**

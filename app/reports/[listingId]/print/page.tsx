@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Image from 'next/image'
 import { Tables } from '@/lib/supabase/database.types'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { PrintActions } from '@/components/reports/print-actions'
@@ -10,13 +10,8 @@ import {
   Eye,
   MousePointerClick,
   Calendar,
-  TrendingUp,
-  BarChart3,
   Facebook,
-  Globe,
-  ArrowUp,
-  ArrowDown,
-  Activity
+  Globe
 } from 'lucide-react'
 
 type Listing = Tables<'listings'>
@@ -29,13 +24,13 @@ interface AnalyticsWithFacebook extends Analytics {
 
 interface MetricsSummary {
   totalViews: number
-  totalClicks: number
   harViews: number
   realtorViews: number
   zillowViews: number
   facebookMetrics: Array<{
     url: string
-    views: number
+    impressions: number
+    reach: number
     clicks: number
   }>
   reportDate: string
@@ -59,7 +54,7 @@ async function getListingData(listingId: string) {
     return null
   }
 
-  // Get all analytics for this listing
+  // Get all analytics for this listing (legacy data)
   const { data: analytics, error: analyticsError } = await supabase
     .from('analytics')
     .select(`
@@ -73,56 +68,100 @@ async function getListingData(listingId: string) {
     console.error('Analytics error:', analyticsError)
   }
 
+  // Get platform metrics (Realtor, Zillow, HAR)
+  const { data: platformMetrics, error: platformError } = await supabase
+    .from('platform_metrics')
+    .select('*')
+    .eq('listing_id', listingId)
+    .order('metric_date', { ascending: false })
+
+  if (platformError) {
+    console.error('Platform metrics error:', platformError)
+  }
+
+  // Get Facebook metrics
+  const { data: facebookMetrics, error: facebookError } = await supabase
+    .from('facebook_metrics')
+    .select(`
+      *,
+      facebook_url:facebook_urls!inner(facebook_url, listing_id)
+    `)
+    .eq('facebook_url.listing_id', listingId)
+    .order('metric_date', { ascending: false })
+
+  if (facebookError) {
+    console.error('Facebook metrics error:', facebookError)
+  }
+
   return {
     listing: listing as Listing & { facebook_urls: FacebookUrl[] },
-    analytics: (analytics || []) as AnalyticsWithFacebook[]
+    analytics: (analytics || []) as AnalyticsWithFacebook[],
+    platformMetrics: platformMetrics || [],
+    facebookMetrics: facebookMetrics || []
+  }
+}
+
+interface PlatformMetric {
+  platform: string
+  views: number | null
+  leads: number | null
+}
+
+interface FacebookMetric {
+  impressions: number | null
+  reach: number | null
+  post_clicks: number | null
+  facebook_url?: {
+    facebook_url: string
   }
 }
 
 function calculateMetrics(
-  analytics: AnalyticsWithFacebook[],
-  listing: Listing & { facebook_urls: FacebookUrl[] }
+  listing: Listing,
+  platformMetrics: PlatformMetric[],
+  facebookMetrics: FacebookMetric[]
 ): MetricsSummary {
-  const totalViews = analytics.reduce((sum, a) => sum + a.views, 0)
-  const totalClicks = analytics.reduce((sum, a) => sum + a.clicks, 0)
+  // Get HAR views from listing columns (simplified: total views only)
+  const harViews = (listing.har_desktop_views || 0) + (listing.har_mobile_views || 0)
 
-  // For this simplified version, we'll aggregate by source type
-  // In a real scenario, you'd track source explicitly in analytics
-  const facebookAnalytics = analytics.filter(a => a.facebook_url_id !== null)
-  const generalAnalytics = analytics.filter(a => a.facebook_url_id === null)
+  // Calculate platform metrics by source (simplified: views only)
+  const realtorViews = platformMetrics
+    .filter(p => p.platform === 'realtor')
+    .reduce((sum, p) => sum + (p.views || 0), 0)
 
-  // Calculate Facebook metrics grouped by URL
-  const facebookUrlMap = new Map<string, { views: number; clicks: number }>()
+  const zillowViews = platformMetrics
+    .filter(p => p.platform === 'zillow')
+    .reduce((sum, p) => sum + (p.views || 0), 0)
 
-  facebookAnalytics.forEach(a => {
-    if (a.facebook_url) {
-      const url = a.facebook_url.facebook_url
-      const existing = facebookUrlMap.get(url) || { views: 0, clicks: 0 }
+  // Calculate Facebook metrics grouped by URL (simplified: impressions, reach, clicks)
+  const facebookUrlMap = new Map<string, { impressions: number; reach: number; clicks: number }>()
+
+  facebookMetrics.forEach(fm => {
+    if (fm.facebook_url?.facebook_url) {
+      const url = fm.facebook_url.facebook_url
+      const existing = facebookUrlMap.get(url) || { impressions: 0, reach: 0, clicks: 0 }
       facebookUrlMap.set(url, {
-        views: existing.views + a.views,
-        clicks: existing.clicks + a.clicks
+        impressions: existing.impressions + (fm.impressions || 0),
+        reach: existing.reach + (fm.reach || 0),
+        clicks: existing.clicks + (fm.post_clicks || 0)
       })
     }
   })
 
-  const facebookMetrics = Array.from(facebookUrlMap.entries()).map(([url, metrics]) => ({
+  const facebookMetricsArray = Array.from(facebookUrlMap.entries()).map(([url, metrics]) => ({
     url,
     ...metrics
   }))
 
-  // Calculate general listing metrics (distributed equally across sources)
-  const generalViews = generalAnalytics.reduce((sum, a) => sum + a.views, 0)
-
-  const sourcesCount = [listing.har_url, listing.realtor_url, listing.zillow_url].filter(Boolean).length
-  const viewsPerSource = sourcesCount > 0 ? Math.floor(generalViews / sourcesCount) : 0
+  // Calculate total views from all sources
+  const totalViews = harViews + realtorViews + zillowViews
 
   return {
     totalViews,
-    totalClicks,
-    harViews: listing.har_url ? viewsPerSource : 0,
-    realtorViews: listing.realtor_url ? viewsPerSource : 0,
-    zillowViews: listing.zillow_url ? viewsPerSource : 0,
-    facebookMetrics,
+    harViews,
+    realtorViews,
+    zillowViews,
+    facebookMetrics: facebookMetricsArray,
     reportDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
   }
 }
@@ -139,15 +178,15 @@ export default async function PrintReportPage({
     notFound()
   }
 
-  const { listing, analytics } = data
-  const metrics = calculateMetrics(analytics, listing)
+  const { listing, platformMetrics, facebookMetrics } = data
+  const metrics = calculateMetrics(listing, platformMetrics, facebookMetrics)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white print:bg-white">
+    <div className="min-h-screen print:min-h-0 bg-gradient-to-br from-gray-50 to-white print:bg-white">
       {/* Letter-sized container */}
-      <div className="max-w-[8.5in] mx-auto bg-white p-12 print:p-0 shadow-2xl print:shadow-none">
+      <div className="max-w-[8.5in] mx-auto bg-white p-8 print:p-0 shadow-2xl print:shadow-none">
         {/* Premium Header with Gradient Background */}
-        <div className="gradient-header -mx-12 -mt-12 px-12 pt-8 pb-4 mb-4 print:mx-0 print:mt-0 print:px-0 print:pt-0">
+        <div className="gradient-header -mx-8 -mt-8 px-8 pt-6 pb-4 mb-4 print:mx-0 print:mt-0 print:px-8 print:pt-6">
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1">
               <div className="relative w-24 h-12 mb-2">
@@ -186,7 +225,7 @@ export default async function PrintReportPage({
             </div>
             {listing.image_url && (
               <div className="bg-white/60 backdrop-blur-sm rounded-lg border border-gray-100 overflow-hidden">
-                <div className="relative w-full h-16">
+                <div className="relative w-full h-24 print:h-32">
                   <Image
                     src={listing.image_url}
                     alt="Property"
@@ -197,7 +236,7 @@ export default async function PrintReportPage({
               </div>
             )}
             {!listing.image_url && (
-              <div className="bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center">
+              <div className="bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center h-24 print:h-32">
                 <p className="text-xs text-gray-400">Property Image</p>
               </div>
             )}
@@ -211,7 +250,7 @@ export default async function PrintReportPage({
             <h2 className="report-heading text-xl text-gray-900">Executive Summary</h2>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             {/* Total Views */}
             <Card className="premium-card border-0 bg-gradient-subtle overflow-hidden">
               <CardContent className="pt-3 pb-3">
@@ -223,23 +262,6 @@ export default async function PrintReportPage({
                     <p className="text-xs text-gray-500 mb-0.5 report-subheading">Total Views</p>
                     <p className="report-metric text-xl text-gray-900">
                       {metrics.totalViews.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Total Clicks */}
-            <Card className="premium-card border-0 bg-gradient-subtle overflow-hidden">
-              <CardContent className="pt-3 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="bg-red-100 p-1.5 rounded-lg">
-                    <MousePointerClick className="h-4 w-4 text-red-600" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-xs text-gray-500 mb-0.5 report-subheading">Total Clicks</p>
-                    <p className="report-metric text-xl text-gray-900">
-                      {metrics.totalClicks.toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -274,15 +296,6 @@ export default async function PrintReportPage({
                       <span className="text-xs text-gray-500 report-body">Views</span>
                       <span className="report-metric text-lg text-gray-900">{metrics.harViews.toLocaleString()}</span>
                     </div>
-
-                    <Separator />
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-gray-500 report-body">Clicks</span>
-                      <span className="report-metric text-base text-gray-900">
-                        {Math.floor(metrics.harViews * 0.15).toLocaleString()}
-                      </span>
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -306,15 +319,6 @@ export default async function PrintReportPage({
                       <span className="text-xs text-gray-500 report-body">Views</span>
                       <span className="report-metric text-lg text-gray-900">{metrics.realtorViews.toLocaleString()}</span>
                     </div>
-
-                    <Separator />
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-gray-500 report-body">Clicks</span>
-                      <span className="report-metric text-base text-gray-900">
-                        {Math.floor(metrics.realtorViews * 0.15).toLocaleString()}
-                      </span>
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -337,15 +341,6 @@ export default async function PrintReportPage({
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-gray-500 report-body">Views</span>
                       <span className="report-metric text-lg text-gray-900">{metrics.zillowViews.toLocaleString()}</span>
-                    </div>
-
-                    <Separator />
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-gray-500 report-body">Clicks</span>
-                      <span className="report-metric text-base text-gray-900">
-                        {Math.floor(metrics.zillowViews * 0.15).toLocaleString()}
-                      </span>
                     </div>
                   </div>
                 </CardContent>
@@ -393,10 +388,20 @@ export default async function PrintReportPage({
                         <div className="text-center">
                           <div className="flex items-center gap-1.5 mb-0.5">
                             <Eye className="h-3.5 w-3.5 text-gray-400" />
-                            <p className="text-xs text-gray-500 report-subheading">Views</p>
+                            <p className="text-xs text-gray-500 report-subheading">Impressions</p>
                           </div>
                           <p className="report-metric text-base text-gray-900">
-                            {fbMetric.views.toLocaleString()}
+                            {fbMetric.impressions.toLocaleString()}
+                          </p>
+                        </div>
+
+                        <div className="text-center">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <Eye className="h-3.5 w-3.5 text-gray-400" />
+                            <p className="text-xs text-gray-500 report-subheading">Reach</p>
+                          </div>
+                          <p className="report-metric text-base text-gray-900">
+                            {fbMetric.reach.toLocaleString()}
                           </p>
                         </div>
 
@@ -452,7 +457,7 @@ export default async function PrintReportPage({
         </div>
 
         {/* Print Button - Hidden when printing */}
-        <PrintActions />
+        <PrintActions listingId={listingId} />
       </div>
     </div>
   )

@@ -15,3 +15,4 @@ COMMENT ON COLUMN listings.har_status IS 'Latest HAR status snapshot (e.g. Activ
 
 
 
+
