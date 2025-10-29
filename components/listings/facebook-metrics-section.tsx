@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -45,18 +45,18 @@ export function FacebookMetricsSection({ listingId, facebookUrls }: FacebookMetr
     }
   }, [facebookUrls, selectedUrlId])
 
-  useEffect(() => {
-    loadMetrics()
-  }, [listingId])
-
-  const loadMetrics = async () => {
+  const loadMetrics = useCallback(async () => {
     const result = await getFacebookMetrics(listingId)
     if (result.error) {
       toast.error(result.error)
     } else {
       setMetrics(result.data)
     }
-  }
+  }, [listingId])
+
+  useEffect(() => {
+    loadMetrics()
+  }, [loadMetrics])
 
   const handleAdd = async () => {
     if (!date) {

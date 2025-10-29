@@ -1,5 +1,5 @@
 import Image from 'next/image'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { PrintActions } from '@/components/reports/print-actions'
@@ -7,13 +7,8 @@ import {
   Eye,
   MousePointerClick,
   Calendar,
-  TrendingUp,
-  BarChart3,
   Facebook,
-  Globe,
-  ArrowUp,
-  ArrowDown,
-  Activity
+  Globe
 } from 'lucide-react'
 
 // Mock data for design preview
@@ -47,7 +42,7 @@ const mockData = {
 }
 
 export default function PreviewReportPage() {
-  const { listing, metrics, analytics } = mockData
+  const { listing, metrics } = mockData
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white print:bg-white">

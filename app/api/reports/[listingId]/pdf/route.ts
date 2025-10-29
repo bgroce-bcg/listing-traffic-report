@@ -158,8 +158,13 @@ function calculateMetrics(
   // For backward compatibility with ReportPDF component, convert facebookPosts to facebookMetrics format
   const facebookMetricsForPDF = facebookPostsArray.map(post => ({
     url: post.url,
-    views: post.views,
-    clicks: 0 // No clicks data in simplified model
+    views: post.views
+  }))
+
+  // Convert legacy facebookMetrics to expected format (use impressions as views for legacy data)
+  const legacyFacebookMetricsForPDF = facebookMetricsArray.map(item => ({
+    url: item.url,
+    views: item.impressions // Use impressions as the view count for legacy data
   }))
 
   return {
@@ -170,7 +175,7 @@ function calculateMetrics(
     zillowViews,
     facebookPostsViews,
     facebookPosts: facebookPostsArray,
-    facebookMetrics: facebookMetricsForPDF.length > 0 ? facebookMetricsForPDF : facebookMetricsArray, // Use new data if available, fall back to legacy
+    facebookMetrics: facebookMetricsForPDF.length > 0 ? facebookMetricsForPDF : legacyFacebookMetricsForPDF, // Use new data if available, fall back to legacy
     reportDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
   }
 }

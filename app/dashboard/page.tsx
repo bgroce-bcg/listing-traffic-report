@@ -13,10 +13,7 @@ import {
   Building2,
   Eye,
   MousePointer,
-  Plus,
-  BarChart3,
-  TrendingUp,
-  List
+  Plus
 } from 'lucide-react'
 
 export default function DashboardPage() {
